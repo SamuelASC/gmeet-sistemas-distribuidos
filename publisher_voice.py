@@ -3,11 +3,13 @@ import time
 
 def main():
     context = zmq.Context()
-    voice_socket = context.socket(zmq.PUB)
-    voice_socket.connect("tcp://localhost:5556")
+    sender_socket = context.socket(zmq.PUSH)
+    sender_socket.connect("tcp://localhost:5558")
 
     while True:
-        voice_socket.send(b"Mensagem de voz")
+        # Enviando a mensagem como bytes codificados em UTF-8
+        message = [b"voice", "Mensagem de voz".encode('utf-8')]
+        sender_socket.send_multipart(message)
         print("Mensagem de voz enviada")
         time.sleep(1)
 

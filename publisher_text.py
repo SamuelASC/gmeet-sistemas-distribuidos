@@ -3,11 +3,13 @@ import time
 
 def main():
     context = zmq.Context()
-    text_socket = context.socket(zmq.PUB)
-    text_socket.connect("tcp://localhost:5557")
+    sender_socket = context.socket(zmq.PUSH)
+    sender_socket.connect("tcp://localhost:5558")
 
     while True:
-        text_socket.send_string("Mensagem de texto")
+        # Enviando a mensagem como bytes codificados em UTF-8
+        message = [b"text", "Mensagem de texto".encode('utf-8')]
+        sender_socket.send_multipart(message)
         print("Mensagem de texto enviada")
         time.sleep(1)
 

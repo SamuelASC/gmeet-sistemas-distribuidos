@@ -15,13 +15,31 @@ def main():
     text_socket = context.socket(zmq.PUB)
     text_socket.bind("tcp://*:5557")
 
+    # Configuração do socket PULL para receber mensagens de publicadores
+    receiver_socket = context.socket(zmq.PULL)
+    receiver_socket.bind("tcp://*:5558")
+
     print("Broker iniciado e aguardando mensagens...")
 
     try:
         while True:
-            #TO DO:  Adicionar lógica para receber mensagens e redirecioná-las
-            # por exemplo, através de sockets específicos de entrada para áudio, voz e texto
-            pass
+            # Recebe mensagem do socket PULL
+            message = receiver_socket.recv_multipart()
+
+            # Espera que a mensagem seja um par (tipo, conteúdo)
+            message_type = message[0].decode('utf-8')
+            content = message[1]
+
+            # Redireciona a mensagem para o socket PUB apropriado
+            if message_type == "audio":
+                audio_socket.send(content)
+                print("Áudio redirecionado")
+            elif message_type == "voice":
+                voice_socket.send(content)
+                print("Voz redirecionada")
+            elif message_type == "text":
+                text_socket.send(content)
+                print("Texto redirecionado")
     except KeyboardInterrupt:
         print("Broker encerrado.")
 
