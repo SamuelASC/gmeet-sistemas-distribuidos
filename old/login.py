@@ -14,7 +14,7 @@ text_port_base = 6000
 video_port_base = 6001
 audio_port_base = 6002
 
-EXIT = False
+EXIT = 0
 
 class ChatApp:
     def __init__(self, root, username, nodes, text_port, video_port, audio_port):
@@ -54,18 +54,13 @@ class ChatApp:
         self.create_control_buttons()
 
         # Mantenha o loop principal no final do método __init__
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.mainloop()
-
-    def on_close(self):
-        global EXIT
-        EXIT = True
-        self.root.destroy()
 
     def setup_zmq(self):
         self.pub_socket = self.context.socket(zmq.PUB)
         self.bind_socket(self.pub_socket, self.text_port)
         print(f"ZMQ Publisher socket bound to port {self.text_port}")
+
     def bind_socket(self, socket, port):
         while True:
             try:
@@ -78,7 +73,6 @@ class ChatApp:
                     time.sleep(1)
                 else:
                     raise
-
 
     def start_threads(self):
         self.sub_thread = threading.Thread(target=self.sub_text)
@@ -112,12 +106,20 @@ class ChatApp:
         self.audio_button.pack(side=tk.LEFT, padx=10, pady=10)
 
     def toggle_camera(self):
-        self.camera_enabled = not self.camera_enabled
-        self.camera_button.configure(text="Disable Camera" if self.camera_enabled else "Enable Camera")
+        if self.camera_enabled:
+            self.camera_enabled = False
+            self.camera_button.configure(text="Enable Camera")
+        else:
+            self.camera_enabled = True
+            self.camera_button.configure(text="Disable Camera")
 
     def toggle_audio(self):
-        self.audio_enabled = not self.audio_enabled
-        self.audio_button.configure(text="Disable Audio" if self.audio_enabled else "Enable Audio")
+        if self.audio_enabled:
+            self.audio_enabled = False
+            self.audio_button.configure(text="Enable Audio")
+        else:
+            self.audio_enabled = True
+            self.audio_button.configure(text="Disable Audio")
 
     def send_message(self, event=None):
         message = self.message_entry.get()
