@@ -34,13 +34,32 @@ class ChatApp:
         self.root.geometry("800x600")
         self.root.configure(bg="#202124")
 
-        self.chat_frame = ttk.Frame(self.root)
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Frame para as câmeras
+        self.camera_frame = ttk.Frame(self.main_frame)
+        self.camera_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Canvas para exibir a câmera local
+        self.local_camera_canvas = tk.Canvas(self.camera_frame, width=320, height=240, bg="#000000")
+        self.local_camera_canvas.pack(side=tk.TOP, padx=10, pady=10)
+
+        # Canvas para exibir a câmera remota
+        self.remote_camera_canvas = tk.Canvas(self.camera_frame, width=320, height=240, bg="#000000")
+        self.remote_camera_canvas.pack(side=tk.TOP, padx=10, pady=10)
+
+        # Frame para o chat e os botões
+        self.chat_control_frame = ttk.Frame(self.main_frame)
+        self.chat_control_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.chat_frame = ttk.Frame(self.chat_control_frame)
         self.chat_frame.pack(fill=tk.BOTH, expand=True)
 
         self.chat_box = tk.Text(self.chat_frame, wrap=tk.WORD, bg="#202124", fg="#ffffff")
         self.chat_box.pack(fill=tk.BOTH, expand=True)
 
-        self.entry_frame = ttk.Frame(self.root)
+        self.entry_frame = ttk.Frame(self.chat_control_frame)
         self.entry_frame.pack(fill=tk.X)
 
         self.message_entry = ttk.Entry(self.entry_frame)
@@ -50,8 +69,9 @@ class ChatApp:
         self.send_button = ttk.Button(self.entry_frame, text="Send", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
 
-        self.setup_zmq()
         self.create_control_buttons()
+
+        self.setup_zmq()
         self.start_threads()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -102,7 +122,7 @@ class ChatApp:
         print("Audio subscription thread started")
 
     def create_control_buttons(self):
-        control_frame = ttk.Frame(self.root)
+        control_frame = ttk.Frame(self.chat_control_frame)
         control_frame.pack(fill=tk.X)
 
         self.camera_button = ttk.Button(control_frame, text="Disable Camera", command=self.toggle_camera)
@@ -167,11 +187,19 @@ class ChatApp:
                     _, buffer = cv2.imencode('.jpg', frame)
                     topic = f"*{self.username}"
                     socket.send(topic.encode() + b" " + base64.b64encode(buffer))
+                    self.update_local_camera(frame)
                 except Exception as e:
                     print(f"Error in pub_video: {e}")
         camera.release()
         socket.close()
         print("Saindo pub_video")
+
+    def update_local_camera(self, frame):
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        imgtk = ImageTk.PhotoImage(image=img)
+        self.local_camera_canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+        self.local_camera_canvas.image = imgtk
 
     def sub_video(self):
         socket = self.context.socket(zmq.SUB)
@@ -189,15 +217,20 @@ class ChatApp:
                 frame = base64.b64decode(frame_encoded)
                 np_frame = np.frombuffer(frame, dtype=np.uint8)
                 img = cv2.imdecode(np_frame, cv2.IMREAD_COLOR)
-                cv2.imshow(topic.decode()[1:], img)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+                self.update_remote_camera(img)
             except zmq.error.ZMQError as e:
                 print(f"ZMQ Error in sub_video: {e}")
             except Exception as e:
                 print(f"Erro ao processar vídeo: {e}")
         socket.close()
         print("Saindo sub_video")
+
+    def update_remote_camera(self, frame):
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        imgtk = ImageTk.PhotoImage(image=img)
+        self.remote_camera_canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+        self.remote_camera_canvas.image = imgtk
 
     def pub_audio(self):
         socket = self.context.socket(zmq.PUB)
@@ -227,15 +260,13 @@ class ChatApp:
             socket.setsockopt_string(zmq.SUBSCRIBE, "*")
             socket.setsockopt_string(zmq.SUBSCRIBE, f"quit-{ip}")
 
-        output_device_index = 7  # Indice do dispositivo de saída "Alto-falantes (Realtek Audio)"
         p = pyaudio.PyAudio()
         audio = p
-        audio.open(
+        stream = audio.open(
             format=pyaudio.paInt16,
             channels=1,
             rate=44100,
             output=True,
-            output_device_index=output_device_index,
             frames_per_buffer=1024,
         )
 
@@ -245,13 +276,15 @@ class ChatApp:
                 topic, data = message.split(b" ", 1)
                 if topic.decode().startswith("quit"):
                     continue
-                audio.write(data)
+                stream.write(data)
             except zmq.error.ZMQError as e:
                 print(f"ZMQ Error in sub_audio: {e}")
             except Exception as e:
                 print(f"Erro ao processar áudio: {e}")
-        socket.close()
+        stream.stop_stream()
+        stream.close()
         p.terminate()
+        socket.close()
         print("Saindo sub_audio")
 
 def login():
