@@ -1,338 +1,329 @@
-import tkinter as tk
-from tkinter import ttk
+#Grupo 1
+#Nome e RA dos participantes:
+#Samuel Abel said Corrêa 800209
+#Juliano Eleno Silva Pádua 800812
+#Anderson Antônio de Melo 795231
+
+import sys
 import zmq
+import time
 import threading
-import pyaudio
 import cv2
 import base64
 import numpy as np
-import sys
-import time
-from PIL import Image, ImageTk
+import socket
+import pyaudio
+import tkinter as tk
 
-# Definição das portas base
-text_port_base = 6000
-video_port_base = 6001
-audio_port_base = 6002
+text_port = 1000
+video_port = 1001
+audio_port = 1002
 
-EXIT = False
+EXIT = 0
 
-class ChatApp:
-    def __init__(self, root, username, nodes, text_port, video_port, audio_port):
-        self.root = root
-        self.username = username
-        self.nodes = nodes
-        self.context = zmq.Context()
-        self.text_port = text_port
-        self.video_port = video_port
-        self.audio_port = audio_port
+message_history = []
 
-        self.camera_enabled = True
-        self.audio_enabled = True
+RECEIVE_SLEEP_TIME = 0.01
 
-        self.root.title(f"Chat - {self.username}")
-        self.root.geometry("800x600")
-        self.root.configure(bg="#202124")
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    local_ip = s.getsockname()[0]
+    return local_ip
 
-        self.main_frame = ttk.Frame(self.root)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
+def quit_socket(socket):
+    topic = "quit-" + get_local_ip()
+    to_send = b"%s %s" % (topic.encode(), b"Nothing")
+    socket.send(to_send)
 
-        # Frame para as câmeras
-        self.camera_frame = ttk.Frame(self.main_frame)
-        self.camera_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+def pub_text(port_pub, zmq_context, chat_input):
+    socket = zmq_context.socket(zmq.PUB)
+    socket.bind("tcp://*:%s" % port_pub)
 
-        # Canvas para exibir a câmera local
-        self.local_camera_canvas = tk.Canvas(self.camera_frame, width=320, height=240, bg="#000000")
-        self.local_camera_canvas.pack(side=tk.TOP, padx=10, pady=10)
+    topic = "*" + get_local_ip()
+    while True:
+        message = chat_input.get()
+        if message == "#quit":
+            quit_socket(socket)
+            global EXIT
+            EXIT = 1
+            break
+        socket.send(b"%s %s" % (topic.encode(), message.encode()))
+        chat_input.set("")
 
-        # Canvas para exibir a câmera remota
-        self.remote_camera_canvas = tk.Canvas(self.camera_frame, width=320, height=240, bg="#000000")
-        self.remote_camera_canvas.pack(side=tk.TOP, padx=10, pady=10)
+    socket.close()
 
-        # Frame para o chat e os botões
-        self.chat_control_frame = ttk.Frame(self.main_frame)
-        self.chat_control_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+def sub_text(ips_to_connect, zmq_context, chat_box):
+    socket = zmq_context.socket(zmq.SUB)
+    for ip in ips_to_connect:
+        socket.connect("tcp://%s:%s" % (ip, int(text_port)))
+        socket.subscribe("*" + ip)
+        socket.subscribe("quit-" + ip)
 
-        self.chat_frame = ttk.Frame(self.chat_control_frame)
-        self.chat_frame.pack(fill=tk.BOTH, expand=True)
+    while True:
+        try:
+            string = socket.recv(flags=zmq.NOBLOCK)
+            topic, messagedata = string.split(b" ", 1)
 
-        self.chat_box = tk.Text(self.chat_frame, wrap=tk.WORD, bg="#202124", fg="#ffffff")
-        self.chat_box.pack(fill=tk.BOTH, expand=True)
+            if topic.decode().startswith("quit"):
+                ip_user_quitting = topic.decode().split("-")[1]
+                message = "Usuário %s saiu do canal de texto.\n" % (ip_user_quitting)
+                chat_box.insert(tk.END, message)
+                chat_box.yview(tk.END)
+                if EXIT:
+                    break
+                continue
 
-        self.entry_frame = ttk.Frame(self.chat_control_frame)
-        self.entry_frame.pack(fill=tk.X)
+            message = "%s: %s\n" % (topic.decode(), messagedata.decode())
+            message_history.append(message)
+            chat_box.insert(tk.END, message)
+            chat_box.yview(tk.END)
 
-        self.message_entry = ttk.Entry(self.entry_frame)
-        self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.message_entry.bind("<Return>", self.send_message)
+        except zmq.Again:
+            pass
 
-        self.send_button = ttk.Button(self.entry_frame, text="Send", command=self.send_message)
-        self.send_button.pack(side=tk.RIGHT)
+        time.sleep(RECEIVE_SLEEP_TIME)
 
-        self.create_control_buttons()
+    socket.close()
 
-        self.setup_zmq()
-        self.start_threads()
+def pub_video(port_pub, zmq_context, video_flag):
+    socket = zmq_context.socket(zmq.PUB)
+    socket.bind("tcp://*:%s" % port_pub)
 
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.root.mainloop()
+    camera = cv2.VideoCapture(0)
+    quitting_key_q = 0
 
-    def on_close(self):
-        global EXIT
-        EXIT = True
-        self.root.destroy()
+    while not EXIT:
+        if video_flag[0]:
+            (grabbed, frame) = camera.read()
+            frame = cv2.resize(frame, (320, 240))
+            encoded, buffer = cv2.imencode(".jpg", frame)
 
-    def setup_zmq(self):
-        self.pub_socket = self.context.socket(zmq.PUB)
-        self.bind_socket(self.pub_socket, self.text_port)
-        print(f"ZMQ Publisher socket bound to port {self.text_port}")
+            topic = "*" + get_local_ip()
 
-    def bind_socket(self, socket, port):
-        while True:
-            try:
-                socket.bind(f"tcp://*:{port}")
+            to_send = b"%s " % (topic.encode())
+            buffer_encoded = base64.b64encode(buffer)
+            to_send += buffer_encoded
+            socket.send(to_send)
+
+            cv2.imshow("Webcam", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                quitting_key_q = 1
+                quit_socket(socket)
                 break
-            except zmq.ZMQError as e:
-                if e.errno == zmq.EADDRINUSE:
-                    print(f"A porta {port} está em uso. Tentando próxima porta.")
-                    port += 1
-                    time.sleep(1)
-                else:
-                    raise
 
-    def start_threads(self):
-        self.sub_thread = threading.Thread(target=self.sub_text)
-        self.sub_thread.start()
-        print("Text subscription thread started")
+    camera.release()
+    
+    if not quitting_key_q:
+        quit_socket(socket)
 
-        self.pub_video_thread = threading.Thread(target=self.pub_video)
-        self.pub_video_thread.start()
-        print("Video publication thread started")
+    cv2.destroyWindow("Webcam")
+    socket.close()
 
-        self.sub_video_thread = threading.Thread(target=self.sub_video)
-        self.sub_video_thread.start()
-        print("Video subscription thread started")
+def sub_video(ips_to_connect, zmq_context):
+    socket = zmq_context.socket(zmq.SUB)
+    for ip in ips_to_connect:
+        socket.connect("tcp://%s:%d" % (ip, video_port))
+        topic = "*" + ip
+        socket.subscribe(topic)
+        quit_topic = "quit-" + ip
+        socket.subscribe(quit_topic)
 
-        self.pub_audio_thread = threading.Thread(target=self.pub_audio)
-        self.pub_audio_thread.start()
-        print("Audio publication thread started")
+    while True:
+        try:
+            string = socket.recv(flags=zmq.NOBLOCK)
+            topic, frame_encoded = string.split()
 
-        self.sub_audio_thread = threading.Thread(target=self.sub_audio)
-        self.sub_audio_thread.start()
-        print("Audio subscription thread started")
+            if topic.decode().startswith("quit"):
+                ip_user_quitting = topic.decode().split("-")[1]
+                cv2.destroyWindow(ip_user_quitting)
+                if EXIT:
+                    break
+                continue
+            
+            img = base64.b64decode(frame_encoded)
+            npimg = np.frombuffer(img, dtype=np.uint8)
+            source = cv2.imdecode(npimg, 1)
+            
+            cv2.imshow(str(topic.decode()[1:]), source)
+            
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
-    def create_control_buttons(self):
-        control_frame = ttk.Frame(self.chat_control_frame)
-        control_frame.pack(fill=tk.X)
+        except zmq.Again:
+            pass
 
-        self.camera_button = ttk.Button(control_frame, text="Disable Camera", command=self.toggle_camera)
-        self.camera_button.pack(side=tk.LEFT, padx=10, pady=10)
+        time.sleep(RECEIVE_SLEEP_TIME)
+    
+    socket.close()
 
-        self.audio_button = ttk.Button(control_frame, text="Disable Audio", command=self.toggle_audio)
-        self.audio_button.pack(side=tk.LEFT, padx=10, pady=10)
+def pub_audio(port_pub, zmq_context, audio_flag):
+    socket = zmq_context.socket(zmq.PUB)
+    socket.bind("tcp://*:%s" % port_pub)
 
-        self.end_call_button = ttk.Button(control_frame, text="End Call", command=self.on_close)
-        self.end_call_button.pack(side=tk.RIGHT, padx=10, pady=10)
+    my_audio = pyaudio.PyAudio()
+    sample_rate = 44100
+    format = pyaudio.paInt16
+    channels = 1
+    frames_per_buffer = 1024
 
-    def toggle_camera(self):
-        self.camera_enabled = not self.camera_enabled
-        self.camera_button.configure(text="Disable Camera" if self.camera_enabled else "Enable Camera")
+    stream = my_audio.open(
+        format=format,
+        channels=channels,
+        rate=sample_rate,
+        input=True,
+        frames_per_buffer=frames_per_buffer,
+    )
 
-    def toggle_audio(self):
-        self.audio_enabled = not self.audio_enabled
-        self.audio_button.configure(text="Disable Audio" if self.audio_enabled else "Enable Audio")
+    while not EXIT:
+        if audio_flag[0]:
+            data = stream.read(frames_per_buffer)
+            to_send = b"%s %s" % (b"*", data)
+            socket.send(to_send)
 
-    def send_message(self, event=None):
-        message = self.message_entry.get()
+    quit_socket(socket)
+    socket.close()
+
+def sub_audio(ips_to_connect, zmq_context):
+    socket = zmq_context.socket(zmq.SUB)
+    for ip in ips_to_connect:
+        socket.connect("tcp://%s:%s" % (ip, audio_port))
+        socket.subscribe("quit-" + ip)
+
+    socket.subscribe("*")
+
+    my_audio = pyaudio.PyAudio()
+    sample_rate = 44100
+    format = pyaudio.paInt16
+    channels = 1
+    frames_per_buffer = 1024
+
+    stream = my_audio.open(
+        format=format,
+        channels=channels,
+        rate=sample_rate,
+        output=True,
+        frames_per_buffer=frames_per_buffer,
+    )
+
+    while True:
+        try:
+            string = socket.recv(flags=zmq.NOBLOCK)
+            topic, data = string.split(b" ", 1)
+
+            if topic.decode().startswith("quit"):
+                ip_user_quitting = topic.decode().split("-")[1]
+                if EXIT:
+                    break
+                continue
+
+            stream.write(data)
+
+        except zmq.Again:
+            pass
+
+        time.sleep(RECEIVE_SLEEP_TIME)
+    
+    socket.close()
+
+def start_gui(nodes):
+    global EXIT
+    root = tk.Tk()
+    root.title("Video conferencia")
+    root.geometry("800x600")
+
+    chat_frame = tk.Frame(root)
+    chat_frame.pack(pady=10)
+
+    chat_box = tk.Text(chat_frame, height=15, width=50)
+    chat_box.pack(side=tk.LEFT, padx=10)
+
+    scrollbar = tk.Scrollbar(chat_frame, command=chat_box.yview)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    chat_box['yscrollcommand'] = scrollbar.set
+
+    chat_input = tk.StringVar()
+    input_entry = tk.Entry(root, textvariable=chat_input, width=50)
+    input_entry.pack(pady=10)
+
+    video_flag = [True]
+    audio_flag = [True]
+
+    def send_message(event=None):
+        message = chat_input.get()
         if message:
-            self.message_entry.delete(0, tk.END)
-            topic = f"*{self.username}"
-            self.pub_socket.send_string(f"{topic} {message}")
-            self.chat_box.insert(tk.END, f"{self.username}: {message}\n")
+            chat_input.set("")
+            message_text = "%s: %s\n" % (get_local_ip(), message)
+            chat_box.insert(tk.END, message_text)
+            chat_box.yview(tk.END)
+            pub_text(text_port, context, chat_input)
+        message_history.append(message_text)
+    
 
-    def sub_text(self):
-        socket = self.context.socket(zmq.SUB)
-        for ip in self.nodes:
-            socket.connect(f"tcp://{ip}:{self.text_port}")
-            socket.setsockopt_string(zmq.SUBSCRIBE, "*")
-            socket.setsockopt_string(zmq.SUBSCRIBE, f"quit-{ip}")
+    input_entry.bind("<Return>", send_message)
+    send_m_button = tk.Button(root, text="Enviar", command=send_message)
+    send_m_button.pack(pady=5)
 
-        while not EXIT:
-            try:
-                message = socket.recv()
-                topic, messagedata = message.split(b" ", 1)
-                if topic.decode().startswith("quit"):
-                    continue
-                self.chat_box.insert(tk.END, f"{topic.decode()}: {messagedata.decode()}\n")
-            except zmq.error.ZMQError as e:
-                print(f"ZMQ Error in sub_text: {e}")
-            except Exception as e:
-                print(f"Erro ao processar mensagem: {e}")
-        socket.close()
-        print("Saindo sub_text")
+    def toggle_video():
+        video_flag[0] = not video_flag[0]
+        video_button.config(text="Ligar Vídeo" if not video_flag[0] else "Desligar Vídeo")
 
-    def pub_video(self):
-        socket = self.context.socket(zmq.PUB)
-        self.bind_socket(socket, self.video_port)
-        print(f"Video publisher socket bound to port {self.video_port}")
+    def toggle_audio():
+        audio_flag[0] = not audio_flag[0]
+        audio_button.config(text="Ligar Áudio" if not audio_flag[0] else "Desligar Áudio")
 
-        camera = cv2.VideoCapture(0)
-        while not EXIT:
-            if self.camera_enabled:
-                try:
-                    ret, frame = camera.read()
-                    if not ret:
-                        break
-                    frame = cv2.resize(frame, (320, 240))
-                    _, buffer = cv2.imencode('.jpg', frame)
-                    topic = f"*{self.username}"
-                    socket.send(topic.encode() + b" " + base64.b64encode(buffer))
-                    self.update_local_camera(frame)
-                except Exception as e:
-                    print(f"Error in pub_video: {e}")
-        camera.release()
-        socket.close()
-        print("Saindo pub_video")
+    video_button = tk.Button(root, text="Desligar Vídeo", command=toggle_video)
+    video_button.pack(pady=5)
 
-    def update_local_camera(self, frame):
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img = Image.fromarray(frame_rgb)
-        imgtk = ImageTk.PhotoImage(image=img)
-        self.local_camera_canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
-        self.local_camera_canvas.image = imgtk
+    audio_button = tk.Button(root, text="Desligar Áudio", command=toggle_audio)
+    audio_button.pack(pady=5)
 
-    def sub_video(self):
-        socket = self.context.socket(zmq.SUB)
-        for ip in self.nodes:
-            socket.connect(f"tcp://{ip}:{self.video_port}")
-            socket.setsockopt_string(zmq.SUBSCRIBE, "*")
-            socket.setsockopt_string(zmq.SUBSCRIBE, f"quit-{ip}")
+    def quit_program():
+        global EXIT
+        EXIT = 1
+        root.destroy()
 
-        while not EXIT:
-            try:
-                message = socket.recv()
-                topic, frame_encoded = message.split(b" ", 1)
-                if topic.decode().startswith("quit"):
-                    continue
-                frame = base64.b64decode(frame_encoded)
-                np_frame = np.frombuffer(frame, dtype=np.uint8)
-                img = cv2.imdecode(np_frame, cv2.IMREAD_COLOR)
-                self.update_remote_camera(img)
-            except zmq.error.ZMQError as e:
-                print(f"ZMQ Error in sub_video: {e}")
-            except Exception as e:
-                print(f"Erro ao processar vídeo: {e}")
-        socket.close()
-        print("Saindo sub_video")
+    quit_button = tk.Button(root, text="Sair", command=quit_program)
+    quit_button.pack(pady=5)
 
-    def update_remote_camera(self, frame):
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img = Image.fromarray(frame_rgb)
-        imgtk = ImageTk.PhotoImage(image=img)
-        self.remote_camera_canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
-        self.remote_camera_canvas.image = imgtk
+    chat_box.insert(tk.END, "Bem-vindo ao chat!\n")
 
-    def pub_audio(self):
-        socket = self.context.socket(zmq.PUB)
-        self.bind_socket(socket, self.audio_port)
-        print(f"Audio publisher socket bound to port {self.audio_port}")
+    for message in message_history:
+        chat_box.insert(tk.END, message)
+    chat_box.yview(tk.END)
 
-        audio = pyaudio.PyAudio()
-        stream = audio.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
+    context = zmq.Context()
 
-        while not EXIT:
-            if self.audio_enabled:
-                try:
-                    data = stream.read(1024)
-                    socket.send(b"*" + data)
-                except Exception as e:
-                    print(f"Error in pub_audio: {e}")
-        stream.stop_stream()
-        stream.close()
-        audio.terminate()
-        socket.close()
-        print("Saindo pub_audio")
+    thread_pub = threading.Thread(target=pub_text, args=(text_port, context, chat_input))
+    thread_pub.start()
 
-    def sub_audio(self):
-        socket = self.context.socket(zmq.SUB)
-        for ip in self.nodes:
-            socket.connect(f"tcp://{ip}:{self.audio_port}")
-            socket.setsockopt_string(zmq.SUBSCRIBE, "*")
-            socket.setsockopt_string(zmq.SUBSCRIBE, f"quit-{ip}")
+    thread_sub = threading.Thread(target=sub_text, args=(nodes, context, chat_box))
+    thread_sub.start()
 
-        p = pyaudio.PyAudio()
-        audio = p
-        stream = audio.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=44100,
-            output=True,
-            frames_per_buffer=1024,
-        )
+    thread_pub_video = threading.Thread(target=pub_video, args=(video_port, context, video_flag))
+    thread_pub_video.start()
 
-        while not EXIT:
-            try:
-                message = socket.recv()
-                topic, data = message.split(b" ", 1)
-                if topic.decode().startswith("quit"):
-                    continue
-                stream.write(data)
-            except zmq.error.ZMQError as e:
-                print(f"ZMQ Error in sub_audio: {e}")
-            except Exception as e:
-                print(f"Erro ao processar áudio: {e}")
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
-        socket.close()
-        print("Saindo sub_audio")
+    thread_sub_video = threading.Thread(target=sub_video, args=(nodes, context))
+    thread_sub_video.start()
 
-def login():
-    global login_window
-    username = username_entry.get()
-    password = password_entry.get()
+    thread_pub_audio = threading.Thread(target=pub_audio, args=(audio_port, context, audio_flag))
+    thread_pub_audio.start()
+    time.sleep(1)
 
-    if username in users and users[username] == password:
-        login_window.destroy()
-        text_port, video_port, audio_port = get_available_ports()
-        root = tk.Tk()
-        app = ChatApp(root, username, nodes, text_port, video_port, audio_port)
-    else:
-        error_label.config(text="Invalid username or password")
+    thread_sub_audio = threading.Thread(target=sub_audio, args=(nodes, context))
+    thread_sub_audio.start()
 
-def get_available_ports():
-    global text_port_base, video_port_base, audio_port_base
-    text_port = text_port_base
-    video_port = video_port_base
-    audio_port = audio_port_base
-    text_port_base += 3
-    video_port_base += 3
-    audio_port_base += 3
-    return text_port, video_port, audio_port
-
-users = {
-    "user1": "password1",
-    "user2": "password2",
-}
+    root.mainloop()
 
 if __name__ == "__main__":
-    nodes = sys.argv[2:] if len(sys.argv) > 2 else []
+    strArgv = ""
+    for element in sys.argv[1:]:
+        strArgv += str(element) + " "
+    strArgv = strArgv.strip()
 
-    login_window = tk.Tk()
-    login_window.title("Login")
+    nodes = strArgv.split("-node ")
+    for i in range(1, len(nodes)):
+        nodes[i] = nodes[i].strip()
+    nodes = nodes[1:]
 
-    tk.Label(login_window, text="Username").pack()
-    username_entry = tk.Entry(login_window)
-    username_entry.pack()
-
-    tk.Label(login_window, text="Password").pack()
-    password_entry = tk.Entry(login_window, show="*")
-    password_entry.pack()
-
-    error_label = tk.Label(login_window, text="", fg="red")
-    error_label.pack()
-
-    login_button = tk.Button(login_window, text="Login", command=login)
-    login_button.pack()
-
-    login_window.mainloop()
+    start_gui(nodes)
