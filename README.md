@@ -1,79 +1,85 @@
-## README.md
+Claro! Aqui está o README traduzido para o português:
 
-# Video Conferencing Application
+---
 
-This is a video conferencing application that simulates a Google Meet-like environment for local communication between two or more users. The application supports video, audio, and text chat functionalities.
+# Aplicação de Videoconferência
 
-## Authors
+Esta é uma aplicação de videoconferência que simula um ambiente semelhante ao Google Meet para comunicação local entre usuários. A aplicação suporta funcionalidades de vídeo, áudio e chat de texto.
+
+## Autores
 
 - Samuel Abel Said Corrêa (RA: 800209)
 - Juliano Eleno Silva Pádua (RA: 800812)
 - Anderson Antônio de Melo (RA: 795231)
 
-## Features
+## Funcionalidades
 
-- Video streaming
-- Audio streaming
-- Text chat
-- GUI for user interaction
-- Toggle video and audio
-- Exit functionality
+- Transmissão de vídeo
+- Transmissão de áudio
+- Chat de texto
+- Interface gráfica para interação do usuário
+- Alternar vídeo e áudio
+- Funcionalidade de sair
 
-## Prerequisites
+## Pré-requisitos
 
 - Python 3.x
 
-## Required Libraries
+## Bibliotecas Necessárias
 
-Ensure you have the following libraries installed:
+Certifique-se de ter as seguintes bibliotecas instaladas:
 
 ```bash
 pip install pyzmq opencv-python numpy pyaudio
 ```
 
-## How to Run
+## Como Executar
 
-1. Clone the repository or download the source code.
-2. Navigate to the directory containing the source code.
-3. Run the application with the following command:
+1. Clone o repositório ou faça o download do código-fonte.
+2. Navegue até o diretório contendo o código-fonte.
+3. Execute a aplicação com o seguinte comando:
 
 ```bash
-python <script_name>.py -node <IP_ADDRESS_1> -node <IP_ADDRESS_2> ...
+python main.py -node <IP_ADDRESS_1> -node <IP_ADDRESS_2> ...
 ```
 
-Replace `<script_name>` with the name of the Python script and `<IP_ADDRESS_1>`, `<IP_ADDRESS_2>`, etc., with the IP addresses of the nodes you want to connect.
+Substitua  `<IP_ADDRESS_1>`, `<IP_ADDRESS_2>`, etc., pelos endereços IP dos nós que você deseja conectar.
 
-Example:
+Exemplo:
 
 ```bash
 python video_conference.py -node 192.168.0.2 -node 192.168.0.3
 ```
 
-## Usage
+## Uso
 
-- **Text Chat:** Type your message in the input box and press Enter or click the "Enviar" button.
-- **Toggle Video:** Click the "Desligar Vídeo" button to turn off the video. The button text will change to "Ligar Vídeo" when the video is off.
-- **Toggle Audio:** Click the "Desligar Áudio" button to turn off the audio. The button text will change to "Ligar Áudio" when the audio is off.
-- **Exit:** Click the "Sair" button to exit the application.
+- **Chat de Texto:** Digite sua mensagem na caixa de entrada e pressione Enter ou clique no botão "Enviar".
+- **Alternar Vídeo:** Clique no botão "Desligar Vídeo" para desligar o vídeo. O texto do botão mudará para "Ligar Vídeo" quando o vídeo estiver desligado.
+- **Alternar Áudio:** Clique no botão "Desligar Áudio" para desligar o áudio. O texto do botão mudará para "Ligar Áudio" quando o áudio estiver desligado.
+- **Sair:** Clique no botão "Sair" para sair da aplicação.
 
-## Code Overview
+## Visão Geral do Código
 
-- `pub_text`: Publishes text messages.
-- `sub_text`: Subscribes to text messages.
-- `pub_video`: Publishes video frames.
-- `sub_video`: Subscribes to video frames.
-- `pub_audio`: Publishes audio data.
-- `sub_audio`: Subscribes to audio data.
-- `start_gui`: Initializes and starts the GUI.
+- `pub_text`: Publica mensagens de texto.
+- `sub_text`: Inscreve-se para receber mensagens de texto.
+- `pub_video`: Publica quadros de vídeo.
+- `sub_video`: Inscreve-se para receber quadros de vídeo.
+- `pub_audio`: Publica dados de áudio.
+- `sub_audio`: Inscreve-se para receber dados de áudio.
+- `start_gui`: Inicializa e inicia a interface gráfica do usuário.
 
-## License
+## Licença
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Este projeto é licenciado sob a Licença MIT - veja o arquivo LICENSE para detalhes.
 
-## Acknowledgments
+## Agradecimentos
 
-This project uses the following libraries:
-- ZeroMQ for messaging
-- OpenCV for video processing
-- PyAudio for audio processing
-- Tkinter for the graphical user interface
+Este projeto utiliza as seguintes bibliotecas:
+- ZeroMQ para mensagens
+- OpenCV para processamento de vídeo
+- PyAudio para processamento de áudio
+- Tkinter para a interface gráfica do usuário
+
+---
+
+Você pode copiar e colar este texto em um arquivo `README.md` no diretório do seu projeto.
